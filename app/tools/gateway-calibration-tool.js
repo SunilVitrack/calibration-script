@@ -181,24 +181,40 @@ class GatewayCalibrationTool {
     }
 
     let workbook;
-    let worksheet;
     let data;
+    const sheetName = 'Calibration Data';
 
     // Read existing file or create new
     if (fs.existsSync(filePath)) {
       workbook = XLSX.readFile(filePath);
-      const sheetName = workbook.SheetNames.find(name => 
+      
+      // Find existing sheet or use first sheet
+      const existingSheetName = workbook.SheetNames.find(name => 
         name.toLowerCase().includes('calibration') || 
         name.toLowerCase().includes('data')
-      ) || workbook.SheetNames[0] || 'Calibration Data';
+      ) || workbook.SheetNames[0];
       
-      worksheet = workbook.Sheets[sheetName];
-      data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      const worksheet = workbook.Sheets[existingSheetName];
+      
+      // Read all data including empty cells, preserving all rows
+      data = XLSX.utils.sheet_to_json(worksheet, { 
+        header: 1, 
+        defval: '',  // Default value for empty cells
+        raw: false   // Convert values to strings/numbers
+      });
+      
+      // Ensure we have at least headers
+      if (data.length === 0) {
+        data = [['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp']];
+      }
+      
+      // If first row doesn't look like headers, add them
+      if (data.length > 0 && !data[0].includes('Gateway MAC')) {
+        data.unshift(['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp']);
+      }
     } else {
       workbook = XLSX.utils.book_new();
       data = [['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp']];
-      worksheet = XLSX.utils.aoa_to_sheet(data);
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Calibration Data');
     }
 
     // Append new row
@@ -211,7 +227,7 @@ class GatewayCalibrationTool {
     ];
     data.push(newRow);
 
-    // Update worksheet
+    // Create new worksheet from updated data
     const newWorksheet = XLSX.utils.aoa_to_sheet(data);
     
     // Set column widths
@@ -223,17 +239,16 @@ class GatewayCalibrationTool {
       { wch: 25 }  // Timestamp
     ];
 
-    // Update workbook
-    const sheetName = workbook.SheetNames.find(name => 
-      name.toLowerCase().includes('calibration') || 
-      name.toLowerCase().includes('data')
-    ) || 'Calibration Data';
-    
-    workbook.Sheets[sheetName] = newWorksheet;
+    // Update or add sheet to workbook
+    if (workbook.SheetNames.includes(sheetName)) {
+      workbook.Sheets[sheetName] = newWorksheet;
+    } else {
+      XLSX.utils.book_append_sheet(workbook, newWorksheet, sheetName);
+    }
 
     // Write file
     XLSX.writeFile(workbook, filePath);
-    console.log(`✓ Data saved to: ${filePath}\n`);
+    console.log(`✓ Data saved to: ${filePath} (${data.length - 1} total entries)\n`);
   }
 
   async run() {

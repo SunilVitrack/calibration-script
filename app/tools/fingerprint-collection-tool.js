@@ -228,20 +228,31 @@ class FingerprintCollectionTool {
     // Read existing file or create new
     if (fs.existsSync(filePath)) {
       workbook = XLSX.readFile(filePath);
-      const sheetName = workbook.SheetNames.find(name => 
+      const existingSheetName = workbook.SheetNames.find(name => 
         name.toLowerCase().includes('fingerprint') || 
         name.toLowerCase().includes('data')
       ) || workbook.SheetNames[0] || 'Fingerprint Data';
       
-      worksheet = workbook.Sheets[sheetName];
-      data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      worksheet = workbook.Sheets[existingSheetName];
+      
+      // Read all data including empty cells, preserving all rows
+      data = XLSX.utils.sheet_to_json(worksheet, { 
+        header: 1,
+        defval: '',  // Default value for empty cells
+        raw: false   // Convert values to strings/numbers
+      });
+      
       headers = data[0] || [];
+      
+      // Ensure we have headers
+      if (data.length === 0 || headers.length === 0) {
+        headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
+        data = [headers];
+      }
     } else {
       workbook = XLSX.utils.book_new();
       headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
       data = [headers];
-      worksheet = XLSX.utils.aoa_to_sheet(data);
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Fingerprint Data');
     }
 
     // Ensure all gateway columns exist in headers
@@ -266,7 +277,7 @@ class FingerprintCollectionTool {
     // Append new row
     data.push(newRow);
 
-    // Update worksheet
+    // Create new worksheet from updated data
     const newWorksheet = XLSX.utils.aoa_to_sheet(data);
     
     // Set column widths
@@ -279,17 +290,17 @@ class FingerprintCollectionTool {
     ];
     newWorksheet['!cols'] = colWidths;
 
-    // Update workbook
-    const sheetName = workbook.SheetNames.find(name => 
-      name.toLowerCase().includes('fingerprint') || 
-      name.toLowerCase().includes('data')
-    ) || 'Fingerprint Data';
-    
-    workbook.Sheets[sheetName] = newWorksheet;
+    // Update or add sheet to workbook
+    const sheetName = 'Fingerprint Data';
+    if (workbook.SheetNames.includes(sheetName)) {
+      workbook.Sheets[sheetName] = newWorksheet;
+    } else {
+      XLSX.utils.book_append_sheet(workbook, newWorksheet, sheetName);
+    }
 
     // Write file
     XLSX.writeFile(workbook, filePath);
-    console.log(`✓ Data saved to: ${filePath}\n`);
+    console.log(`✓ Data saved to: ${filePath} (${data.length - 1} total locations)\n`);
   }
 
   async run() {
