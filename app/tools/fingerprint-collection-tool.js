@@ -227,25 +227,45 @@ class FingerprintCollectionTool {
 
     // Read existing file or create new
     if (fs.existsSync(filePath)) {
-      workbook = XLSX.readFile(filePath);
-      const existingSheetName = workbook.SheetNames.find(name => 
-        name.toLowerCase().includes('fingerprint') || 
-        name.toLowerCase().includes('data')
-      ) || workbook.SheetNames[0] || 'Fingerprint Data';
-      
-      worksheet = workbook.Sheets[existingSheetName];
-      
-      // Read all data including empty cells, preserving all rows
-      data = XLSX.utils.sheet_to_json(worksheet, { 
-        header: 1,
-        defval: '',  // Default value for empty cells
-        raw: false   // Convert values to strings/numbers
-      });
-      
-      headers = data[0] || [];
-      
-      // Ensure we have headers
-      if (data.length === 0 || headers.length === 0) {
+      try {
+        workbook = XLSX.readFile(filePath);
+        const existingSheetName = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('fingerprint') || 
+          name.toLowerCase().includes('data')
+        ) || workbook.SheetNames[0] || 'Fingerprint Data';
+        
+        if (existingSheetName) {
+          worksheet = workbook.Sheets[existingSheetName];
+          
+          // Get the range of the sheet
+          const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+          
+          // Read all rows from the sheet
+          data = [];
+          for (let R = range.s.r; R <= range.e.r; R++) {
+            const row = [];
+            for (let C = range.s.c; C <= range.e.c; C++) {
+              const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+              const cell = worksheet[cellAddress];
+              row.push(cell ? (cell.v !== undefined ? cell.v : '') : '');
+            }
+            data.push(row);
+          }
+          
+          headers = data[0] || [];
+          
+          // Ensure we have headers
+          if (data.length === 0 || headers.length === 0) {
+            headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
+            data = [headers];
+          }
+        } else {
+          headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
+          data = [headers];
+        }
+      } catch (error) {
+        console.error('Error reading existing file, creating new:', error.message);
+        workbook = XLSX.utils.book_new();
         headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
         data = [headers];
       }
@@ -292,10 +312,9 @@ class FingerprintCollectionTool {
 
     // Update or add sheet to workbook
     const sheetName = 'Fingerprint Data';
-    if (workbook.SheetNames.includes(sheetName)) {
-      workbook.Sheets[sheetName] = newWorksheet;
-    } else {
-      XLSX.utils.book_append_sheet(workbook, newWorksheet, sheetName);
+    workbook.Sheets[sheetName] = newWorksheet;
+    if (!workbook.SheetNames.includes(sheetName)) {
+      workbook.SheetNames.push(sheetName);
     }
 
     // Write file

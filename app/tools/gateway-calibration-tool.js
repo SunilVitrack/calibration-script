@@ -181,40 +181,57 @@ class GatewayCalibrationTool {
     }
 
     let workbook;
-    let data;
+    let data = [];
     const sheetName = 'Calibration Data';
+    const headers = ['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp'];
 
     // Read existing file or create new
     if (fs.existsSync(filePath)) {
-      workbook = XLSX.readFile(filePath);
-      
-      // Find existing sheet or use first sheet
-      const existingSheetName = workbook.SheetNames.find(name => 
-        name.toLowerCase().includes('calibration') || 
-        name.toLowerCase().includes('data')
-      ) || workbook.SheetNames[0];
-      
-      const worksheet = workbook.Sheets[existingSheetName];
-      
-      // Read all data including empty cells, preserving all rows
-      data = XLSX.utils.sheet_to_json(worksheet, { 
-        header: 1, 
-        defval: '',  // Default value for empty cells
-        raw: false   // Convert values to strings/numbers
-      });
-      
-      // Ensure we have at least headers
-      if (data.length === 0) {
-        data = [['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp']];
-      }
-      
-      // If first row doesn't look like headers, add them
-      if (data.length > 0 && !data[0].includes('Gateway MAC')) {
-        data.unshift(['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp']);
+      try {
+        workbook = XLSX.readFile(filePath);
+        
+        // Find existing sheet or use first sheet
+        const existingSheetName = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('calibration') || 
+          name.toLowerCase().includes('data')
+        ) || workbook.SheetNames[0];
+        
+        if (existingSheetName) {
+          const worksheet = workbook.Sheets[existingSheetName];
+          
+          // Get the range of the sheet
+          const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+          
+          // Read all rows from the sheet
+          data = [];
+          for (let R = range.s.r; R <= range.e.r; R++) {
+            const row = [];
+            for (let C = range.s.c; C <= range.e.c; C++) {
+              const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+              const cell = worksheet[cellAddress];
+              row.push(cell ? (cell.v !== undefined ? cell.v : '') : '');
+            }
+            data.push(row);
+          }
+          
+          // Ensure we have headers
+          if (data.length === 0 || !data[0] || data[0].length === 0) {
+            data = [headers];
+          } else if (!data[0].includes('Gateway MAC')) {
+            // If first row doesn't have headers, add them
+            data.unshift(headers);
+          }
+        } else {
+          data = [headers];
+        }
+      } catch (error) {
+        console.error('Error reading existing file, creating new:', error.message);
+        workbook = XLSX.utils.book_new();
+        data = [headers];
       }
     } else {
       workbook = XLSX.utils.book_new();
-      data = [['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp']];
+      data = [headers];
     }
 
     // Append new row
@@ -240,10 +257,9 @@ class GatewayCalibrationTool {
     ];
 
     // Update or add sheet to workbook
-    if (workbook.SheetNames.includes(sheetName)) {
-      workbook.Sheets[sheetName] = newWorksheet;
-    } else {
-      XLSX.utils.book_append_sheet(workbook, newWorksheet, sheetName);
+    workbook.Sheets[sheetName] = newWorksheet;
+    if (!workbook.SheetNames.includes(sheetName)) {
+      workbook.SheetNames.push(sheetName);
     }
 
     // Write file
