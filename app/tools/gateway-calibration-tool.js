@@ -58,15 +58,22 @@ class GatewayCalibrationTool {
       const payload = JSON.parse(message.toString());
       
       // Parse mosquitto-client message format:
-      // { data: [{mac: "...", rssi: ...}], device_info: {mac: "..."} }
+      // { device_info: {mac: "..."}, data: [{mac: "...", rssi: ...}] }
+      // device_info.mac is the GATEWAY MAC
+      // data array contains tags/devices detected by that gateway
+      if (!payload.device_info || !payload.device_info.mac) return;
       if (!Array.isArray(payload.data)) return;
 
+      const gatewayMac = payload.device_info.mac.toUpperCase();
+      
+      // Only process messages from the target gateway
+      if (gatewayMac !== this.currentGatewayMac) return;
+
+      // Collect RSSI values from all tags detected by this gateway
       payload.data.forEach(item => {
-        const gatewayMac = item.mac;
         const rssi = item.rssi;
 
-        // Only record if it matches the current gateway MAC
-        if (gatewayMac && gatewayMac === this.currentGatewayMac && typeof rssi === 'number') {
+        if (typeof rssi === 'number') {
           this.recordings.push({
             gatewayMac,
             rssi,

@@ -38,6 +38,13 @@ class FingerprintCollectionTool {
 
       this.client.on('connect', () => {
         console.log(`✓ Connected to MQTT broker: ${brokerUrl}\n`);
+        this.   client.subscribe('#', (err) => {
+          if (!err) {
+              console.log('📡 Subscribed to all topics');
+          } else {
+              console.error('❌ Subscription error:', err);
+          }
+      });
         resolve();
       });
 
@@ -59,22 +66,25 @@ class FingerprintCollectionTool {
       const payload = JSON.parse(message.toString());
       
       // Parse mosquitto-client message format:
-      // { data: [{mac: "...", rssi: ...}], device_info: {mac: "..."} }
+      // { device_info: {mac: "..."}, data: [{mac: "...", rssi: ...}] }
+      // device_info.mac is the GATEWAY MAC
+      // data array contains tags/devices detected by that gateway
+      if (!payload.device_info || !payload.device_info.mac) return;
       if (!Array.isArray(payload.data)) return;
 
+      const gatewayMac = payload.device_info.mac.toUpperCase();
+      this.gatewayMacs.add(gatewayMac);
+
+      // Collect RSSI values from all tags detected by this gateway
       payload.data.forEach(item => {
-        const gatewayMac = item.mac;
         const rssi = item.rssi;
 
-        if (gatewayMac && typeof rssi === 'number') {
-          const macUpper = gatewayMac.toUpperCase();
-          this.gatewayMacs.add(macUpper);
-          
-          if (!this.recordings.has(macUpper)) {
-            this.recordings.set(macUpper, []);
+        if (typeof rssi === 'number') {
+          if (!this.recordings.has(gatewayMac)) {
+            this.recordings.set(gatewayMac, []);
           }
           
-          this.recordings.get(macUpper).push({
+          this.recordings.get(gatewayMac).push({
             rssi,
             timestamp: Date.now()
           });
