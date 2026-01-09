@@ -1,0 +1,19 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "cg": "node tools/gateway-calibration-tool.js",
+    "cf": "node tools/fingerprint-collection-tool.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "mqtt": "^5.14.1",
+    "xlsx": "^0.18.5"
+  }
+}
