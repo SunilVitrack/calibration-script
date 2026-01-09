@@ -166,12 +166,19 @@ class GatewayCalibrationTool {
     console.log(`   Max RSSI: ${maxRssi.toFixed(2)} dBm\n`);
 
     // Write to Excel
-    await this.writeToExcel(this.currentGatewayMac, this.currentDistance, avgRssi);
+    await this.writeToExcel(
+      this.currentGatewayMac, 
+      this.currentDistance, 
+      avgRssi, 
+      minRssi, 
+      maxRssi, 
+      this.recordings.length
+    );
 
     return true;
   }
 
-  async writeToExcel(gatewayMac, distance, rssi) {
+  async writeToExcel(gatewayMac, distance, avgRssi, minRssi, maxRssi, sampleCount) {
     const filePath = this.outputFile || path.join(__dirname, '..', 'gateway-calibration-data.xlsx');
 
     // Ensure directory exists
@@ -183,7 +190,7 @@ class GatewayCalibrationTool {
     let workbook;
     let data = [];
     const sheetName = 'Calibration Data';
-    const headers = ['Gateway MAC', 'Distance (m)', 'RSSI (dBm)', 'Notes', 'Timestamp'];
+    const headers = ['Gateway MAC', 'Distance (m)', 'Avg RSSI (dBm)', 'Min RSSI (dBm)', 'Max RSSI (dBm)', 'Samples', 'Notes', 'Timestamp'];
 
     // Read existing file or create new
     if (fs.existsSync(filePath)) {
@@ -217,9 +224,29 @@ class GatewayCalibrationTool {
           // Ensure we have headers
           if (data.length === 0 || !data[0] || data[0].length === 0) {
             data = [headers];
-          } else if (!data[0].includes('Gateway MAC')) {
-            // If first row doesn't have headers, add them
-            data.unshift(headers);
+          } else {
+            const existingHeaders = data[0];
+            if (!existingHeaders.includes('Gateway MAC')) {
+              // If first row doesn't have headers, add them
+              data.unshift(headers);
+            } else if (!existingHeaders.includes('Min RSSI (dBm)')) {
+              // Update headers to include new columns (backward compatibility)
+              const oldHeaders = [...existingHeaders];
+              const rssiIndex = oldHeaders.findIndex(h => h.includes('RSSI') && !h.includes('Min') && !h.includes('Max'));
+              
+              if (rssiIndex !== -1) {
+                // Replace old RSSI column with new columns
+                existingHeaders[rssiIndex] = 'Avg RSSI (dBm)';
+                existingHeaders.splice(rssiIndex + 1, 0, 'Min RSSI (dBm)', 'Max RSSI (dBm)', 'Samples');
+                
+                // Pad existing data rows with empty values for new columns
+                for (let i = 1; i < data.length; i++) {
+                  const rssiValue = data[i][rssiIndex];
+                  data[i][rssiIndex] = rssiValue; // Keep avg RSSI
+                  data[i].splice(rssiIndex + 1, 0, '', '', 0); // Add empty min, max, samples
+                }
+              }
+            }
           }
         } else {
           data = [headers];
@@ -238,7 +265,10 @@ class GatewayCalibrationTool {
     const newRow = [
       gatewayMac,
       distance,
-      Math.round(rssi * 100) / 100, // Round to 2 decimals
+      Math.round(avgRssi * 100) / 100, // Round to 2 decimals
+      Math.round(minRssi * 100) / 100,
+      Math.round(maxRssi * 100) / 100,
+      sampleCount,
       '',
       new Date().toISOString()
     ];
@@ -251,7 +281,10 @@ class GatewayCalibrationTool {
     newWorksheet['!cols'] = [
       { wch: 18 }, // Gateway MAC
       { wch: 12 }, // Distance
-      { wch: 12 }, // RSSI
+      { wch: 15 }, // Avg RSSI
+      { wch: 15 }, // Min RSSI
+      { wch: 15 }, // Max RSSI
+      { wch: 10 }, // Samples
       { wch: 40 }, // Notes
       { wch: 25 }  // Timestamp
     ];

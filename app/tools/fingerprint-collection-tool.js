@@ -182,6 +182,7 @@ class FingerprintCollectionTool {
 
     const rssiReadings = {};
     const stats = {};
+    let allRssiValues = []; // Collect all RSSI values for overall stats
 
     this.recordings.forEach((values, gatewayMac) => {
       const rssiValues = values.map(v => v.rssi);
@@ -196,22 +197,39 @@ class FingerprintCollectionTool {
         min: minRssi,
         max: maxRssi
       };
+      
+      // Collect all RSSI values for overall statistics
+      allRssiValues.push(...rssiValues);
     });
+
+    // Calculate overall statistics
+    const overallMin = allRssiValues.length > 0 ? Math.min(...allRssiValues) : 0;
+    const overallMax = allRssiValues.length > 0 ? Math.max(...allRssiValues) : 0;
+    const totalSamples = allRssiValues.length;
 
     console.log(`\n\n✓ Recording complete!`);
     console.log(`   Gateways detected: ${this.gatewayMacs.size}`);
+    console.log(`   Total samples: ${totalSamples}`);
+    console.log(`   Overall RSSI range: ${overallMin.toFixed(2)} to ${overallMax.toFixed(2)} dBm`);
     Object.entries(stats).forEach(([mac, stat]) => {
       console.log(`   ${mac}: ${stat.samples} samples, avg: ${stat.avg.toFixed(2)} dBm (${stat.min.toFixed(2)} to ${stat.max.toFixed(2)})`);
     });
     console.log();
 
     // Write to Excel
-    await this.writeToExcel(this.currentLocationId, this.currentCoordinates, rssiReadings);
+    await this.writeToExcel(
+      this.currentLocationId, 
+      this.currentCoordinates, 
+      rssiReadings,
+      overallMin,
+      overallMax,
+      totalSamples
+    );
 
     return true;
   }
 
-  async writeToExcel(locationId, coordinates, rssiReadings) {
+  async writeToExcel(locationId, coordinates, rssiReadings, overallMin, overallMax, totalSamples) {
     const filePath = this.outputFile || path.join(__dirname, '..', 'fingerprint-collection-data.xlsx');
 
     // Ensure directory exists
@@ -256,8 +274,37 @@ class FingerprintCollectionTool {
           
           // Ensure we have headers
           if (data.length === 0 || headers.length === 0) {
-            headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
+            headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)', 'Min RSSI (dBm)', 'Max RSSI (dBm)', 'Total Samples'];
             data = [headers];
+          } else {
+            // Ensure new columns exist in headers (for backward compatibility)
+            const requiredStatsCols = ['Min RSSI (dBm)', 'Max RSSI (dBm)', 'Total Samples'];
+            const baseCols = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
+            
+            // Find where gateway columns start (after base + stats columns)
+            let statsColStartIndex = -1;
+            for (let i = 0; i < headers.length; i++) {
+              if (baseCols.includes(headers[i])) {
+                statsColStartIndex = i + baseCols.length;
+                break;
+              }
+            }
+            
+            // If stats columns are missing, add them
+            if (statsColStartIndex === -1 || !headers.includes('Min RSSI (dBm)')) {
+              // Find where base columns end
+              let baseEndIndex = headers.findIndex(h => !baseCols.includes(h) && !requiredStatsCols.includes(h));
+              if (baseEndIndex === -1) baseEndIndex = headers.length;
+              
+              // Insert stats columns after base columns
+              headers.splice(baseEndIndex, 0, ...requiredStatsCols);
+              
+              // Pad existing data rows with empty values for new columns
+              for (let i = 1; i < data.length; i++) {
+                const baseEnd = Math.min(baseCols.length, data[i].length);
+                data[i].splice(baseEnd, 0, '', '', '');
+              }
+            }
           }
         } else {
           headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
@@ -271,7 +318,7 @@ class FingerprintCollectionTool {
       }
     } else {
       workbook = XLSX.utils.book_new();
-      headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)'];
+      headers = ['Location ID', 'X (m)', 'Y (m)', 'Z (m)', 'Min RSSI (dBm)', 'Max RSSI (dBm)', 'Total Samples'];
       data = [headers];
     }
 
@@ -283,8 +330,16 @@ class FingerprintCollectionTool {
       }
     });
 
-    // Build new row
-    const newRow = [locationId, coordinates.x, coordinates.y, coordinates.z];
+    // Build new row: Location info, overall stats, then gateway-specific RSSI values
+    const newRow = [
+      locationId, 
+      coordinates.x, 
+      coordinates.y, 
+      coordinates.z,
+      Math.round(overallMin * 100) / 100,
+      Math.round(overallMax * 100) / 100,
+      totalSamples
+    ];
     gatewayMacs.forEach(mac => {
       newRow.push(rssiReadings[mac] || '');
     });
@@ -306,6 +361,9 @@ class FingerprintCollectionTool {
       { wch: 10 }, // X
       { wch: 10 }, // Y
       { wch: 10 }, // Z
+      { wch: 15 }, // Min RSSI
+      { wch: 15 }, // Max RSSI
+      { wch: 12 }, // Total Samples
       ...gatewayMacs.map(() => ({ wch: 18 })) // RSSI columns (MAC addresses)
     ];
     newWorksheet['!cols'] = colWidths;
